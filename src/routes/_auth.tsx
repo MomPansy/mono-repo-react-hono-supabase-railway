@@ -1,11 +1,11 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { userQueryOptions } from 'hooks/firebase';
+import { accessTokenQueryOptions } from 'hooks/auth.ts';
 import { Outlet } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/_auth')({
   async beforeLoad({context: { queryClient }}) {
     try {
-      await queryClient.ensureQueryData(userQueryOptions);
+      await queryClient.ensureQueryData(accessTokenQueryOptions);
     } catch (_error) {
       throw redirect({ to: '/login' });
     }

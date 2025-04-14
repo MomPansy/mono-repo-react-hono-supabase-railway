@@ -9,85 +9,122 @@ import {
     Stack
 } from '@mantine/core';
 import classes from './login.module.css';
-import { registerWithEmailAndPassword } from 'hooks/firebase';
 import { useNavigate } from "@tanstack/react-router";
+import { Link } from '@tanstack/react-router';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
+import { useMutation } from '@tanstack/react-query';
+import { supabase } from 'lib/supabase.ts';
+import { showError } from 'utils/notifications.tsx';
+import { z } from 'zod';
+import { zodResolver } from 'mantine-form-zod-resolver';
 
-interface RegisterProps {
-    email: string;
-    password: string;
-    confirmPassword: string;
-}
+const redirectUrl = import.meta.env.VITE_APP_URL || window.location.origin;
+
 
 export function Register() {
-    const form = useForm<RegisterProps>({
+    const form = useForm({
         initialValues: {
             email: '',
             password: '',
             confirmPassword: ''
         },
-        validate: {
-            email: (value) => (/^\S+@\S+$/.test(value) ? null : 'Invalid email'),
-            password: (value) => (value.length < 6 ? 'Password must be at least 6 characters' : null),
-            confirmPassword: (value, values) =>
-                value !== values.password ? 'Passwords do not match' : null,
-        }
+        validate: zodResolver(
+            z.object({
+                email: z.string().email('Invalid email'),
+                password: z.string().min(6, 'Password must be at least 6 characters'),
+                confirmPassword: z.string()
+            }).refine(data => data.password === data.confirmPassword, {
+                message: 'Passwords do not match',
+                path: ['confirmPassword']
+            })
+        )
     });
+
     const navigate = useNavigate();
 
-    const handleSubmitRegister = (values: RegisterProps) => {
-        const { email, password } = values;
-        registerWithEmailAndPassword(email, password, navigate).catch((error) => {
+    const registerMutation = useMutation({
+        mutationKey: ['auth', 'signup'],
+        mutationFn: async (values: typeof form.values) => {
+            const { data, error } = await supabase.auth.signUp({
+                email: values.email,
+                password: values.password,
+                options: {
+                    emailRedirectTo: redirectUrl,
+                }
+            });
+            
+            if (error) {
+                throw error;
+            }
+            
+            return data;
+        },
+        onSuccess: () => {
+            form.reset();
             notifications.show({
-                title: 'Registration failed',
-                message: error.message,
-                color: 'red'
-            })
-        });
-    }
+                title: 'Registration successful',
+                message: 'Please check your email to confirm your account.',
+                color: 'green'
+            });
+            
+            // You can navigate to login or a confirmation page
+            navigate({
+                to: '/login',
+            });
+        },
+        onError: (error) => {
+            showError(error.message);
+        }
+    });
 
     return (
-        <form className={classes.wrapper} onSubmit={form.onSubmit(handleSubmitRegister)}>
+        <div className={classes.wrapper}>
             <Paper className={classes.form} radius={0} p={30}>
                 <Title order={2} className={classes.title} ta="center" mt="md" mb={50}>
                     Create your account
                 </Title>
 
-                <TextInput 
-                    label="Email address" 
-                    placeholder="hello@gmail.com" 
-                    size="md" 
-                    {...form.getInputProps('email')} 
-                />
-                <PasswordInput 
-                    label="Password" 
-                    placeholder="Your password" 
-                    mt="md" 
-                    size="md" 
-                    {...form.getInputProps('password')}
-                />
-                <PasswordInput 
-                    label="Confirm Password" 
-                    placeholder="Confirm your password" 
-                    mt="md" 
-                    size="md" 
-                    {...form.getInputProps('confirmPassword')}
-                />
-                
-                <Stack mt={'xl'}>
-                    <Button type='submit' fullWidth size="md">
+                <form onSubmit={form.onSubmit((values) => registerMutation.mutate(values))}>
+                    <TextInput 
+                        label="Email address" 
+                        placeholder="hello@gmail.com" 
+                        size="md" 
+                        {...form.getInputProps('email')} 
+                    />
+                    <PasswordInput 
+                        label="Password" 
+                        placeholder="Your password" 
+                        mt="md" 
+                        size="md" 
+                        {...form.getInputProps('password')}
+                    />
+                    <PasswordInput 
+                        label="Confirm Password" 
+                        placeholder="Confirm your password" 
+                        mt="md" 
+                        size="md" 
+                        {...form.getInputProps('confirmPassword')}
+                    />
+                    
+                    <Button 
+                        type='submit' 
+                        fullWidth 
+                        size="md" 
+                        mt="xl"
+                        loading={registerMutation.isPending}
+                    >
                         Register
                     </Button>
-                </Stack>
+                </form>
 
                 <Text ta="center" mt="md">
                     Already have an account?{' '}
-                    <Anchor<'a'> href="#" fw={700} onClick={(event) => event.preventDefault()}>
+                    <Link to="/login" className="text-hf-blue hover:text-blue-700 font-bold">
                         Login
-                    </Anchor>
+                    </Link>
                 </Text>
             </Paper>
-        </form>
+        </div>
     );
 }

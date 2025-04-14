@@ -19,7 +19,12 @@ function Component() {
     <>
       <hr />
       <Outlet />
-      <TanStackRouterDevtools />
+      {import.meta.env.DEV && (
+        <>
+          <ReactQueryDevtools buttonPosition="bottom-right" />
+          <TanStackRouterDevtools position="bottom-right" />
+        </>
+      )}
     </>
   )
 }

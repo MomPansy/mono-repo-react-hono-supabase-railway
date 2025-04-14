@@ -1,6 +1,5 @@
-import { useState } from 'react';
+import { useState, useLayoutEffect, useRef } from 'react';
 import {
-    Anchor,
     Button,
     Checkbox,
     Paper,
@@ -9,60 +8,232 @@ import {
     TextInput,
     Title,
     ButtonProps,
-    Stack
+    Stack,
+    Tabs,
+    FloatingIndicator
 } from '@mantine/core';
 import classes from './login.module.css';
 
-import { loginWithEmailAndPassword, loginWithGoogle } from 'hooks/firebase';
 import { useNavigate } from "@tanstack/react-router";
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import { Link } from '@tanstack/react-router';
+import { z } from 'zod';
+import { zodResolver } from 'mantine-form-zod-resolver';
+import { supabase } from 'lib/supabase.ts';
+import { showError } from 'utils/notifications.tsx';
+import { useMutation } from '@tanstack/react-query';
 
-interface LoginProps {
-    email: string;
-    password: string;
-};
+const redirectUrl = import.meta.env.VITE_APP_URL || window.location.origin;
 
 export function Login() {
-    const form = useForm<LoginProps>({
+    const [activeTab, setActiveTab] = useState<string | null>('magic-link');
+    const rootRef = useRef<HTMLDivElement | null>(null);
+    const controlsRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+    const [refsReady, setRefsReady] = useState(false);
+
+    // Use layout effect to ensure the tabs initialize properly
+    useLayoutEffect(() => {
+        // Check if both refs needed for the indicator are available
+        if (rootRef.current && controlsRefs.current['magic-link']) {
+            setRefsReady(true);
+        }
+    }, [rootRef.current, controlsRefs.current['magic-link']]);
+
+
+    const magicLinkForm = useForm({
+        mode: 'uncontrolled',
         initialValues: {
             email: '',
-            password: ''
         },
-        validate: {
-            email: (value) => (/^\S+@\S+$/.test(value) ? null : 'Invalid email'),
-            // non empty password
-            password: (value) => (value.length < 1 ? 'Please enter your password' : null)
-        }
+        validate: zodResolver(z.object({ email: z.string().email() })),
     });
+
+    const passwordForm = useForm({
+        mode: 'uncontrolled',
+        initialValues: {
+            email: '',
+            password: '',
+        },
+        validate: zodResolver(z.object({
+            email: z.string().email(),
+            password: z.string().min(1, "Password is required"),
+        })),
+    });
+
     const navigate = useNavigate();
 
-    const handleSubmitLoginWithEmailAndPassword = (values: LoginProps) => {
-        const { email, password } = values;
-        loginWithEmailAndPassword(email, password, navigate).catch((error) => {
+    const magicLinkMutation = useMutation({
+        mutationKey: ['auth', 'signin', 'magic-link'],
+        mutationFn: async (values: typeof magicLinkForm.values) => {
+            const { data, error } = await supabase.auth.signInWithOtp({
+                email: values.email,
+                options: {
+                    emailRedirectTo: redirectUrl,
+                }
+            });
+            if (error) {
+                throw error;
+            }
+            return data;
+        },
+        onSuccess: () => {
+            magicLinkForm.reset();
             notifications.show({
-                title: 'Login failed',
-                message: error.message,
-                color: 'red'
+                title: 'Check your email',
+                message: 'We sent you a login link. Check your email inbox.',
+                color: 'green',
+            });
+        },
+        onError: (error) => {
+            showError(error.message);
+        },
+    });
+
+    const passwordMutation = useMutation({
+        mutationKey: ['auth', 'signin', 'password'],
+        mutationFn: async (values: typeof passwordForm.values) => {
+            const { data, error } = await supabase.auth.signInWithPassword({
+                email: values.email,
+                password: values.password,
+            });
+            if (error) {
+                throw error;
+            }
+            return data;
+        },
+        onSuccess: () => {
+            passwordForm.reset();
+            navigate({
+                to: '/',
+            }); // Redirect to home or dashboard
+        },
+        onError: (error) => {
+            showError(error.message);
+        },
+    });
+
+    const thirdPartyMutation = useMutation({
+        mutationKey: ['auth', 'signin', 'google'],
+        mutationFn: async () => {
+            const { data, error } = await supabase.auth.signInWithIdToken({
+                provider: 'google',
+                token: 'your-id-token'
             })
-        });
-    }
+
+            if (error) {
+                throw error;
+            }
+            return data;
+        },
+        onSuccess: () => {
+            passwordForm.reset();
+            navigate({
+                to: '/',
+            }); // Redirect to home or dashboard
+        },
+        onError: (error) => {
+            showError(error.message);
+        },
+    });
+
     return (
-        <form className={classes.wrapper} onSubmit={form.onSubmit(handleSubmitLoginWithEmailAndPassword)}>
+        <div className={classes.wrapper}>
             <Paper className={classes.form} radius={0} p={30}>
                 <Title order={2} className={classes.title} ta="center" mt="md" mb={50}>
-                    Welcome back to MollyGo!
+                    Welcome back to [INSERT APP NAME]!
                 </Title>
 
-                <TextInput label="Email address" placeholder="hello@gmail.com" size="md" {...form.getInputProps('email')} />
-                <PasswordInput label="Password" placeholder="Your password" mt="md" size="md" {...form.getInputProps('password')}/>
-                <Checkbox label="Keep me logged in" mt="xl" size="md" />
+                <Tabs value={activeTab} onChange={setActiveTab} variant="none" className={classes.list}
+                >
+                    <Tabs.List ref={rootRef} mb="md">
+                        <Tabs.Tab
+                            value="magic-link"
+                            ref={(node) => {
+                                controlsRefs.current['magic-link'] = node;
+                            }}
+                            className={classes.tab}
+                        >
+                            Magic Link
+                        </Tabs.Tab>
+                        <Tabs.Tab
+                            value="password"
+                            ref={(node) => {
+                                controlsRefs.current['password'] = node;
+                            }}
+                            className={classes.tab}
+
+                        >
+                            Email & Password
+                        </Tabs.Tab>
+
+                        {refsReady && (
+                            <FloatingIndicator
+                                target={controlsRefs.current[activeTab || 'magic-link']}
+                                parent={rootRef.current}
+                                className={classes.indicator}
+                            />
+                        )}
+                    </Tabs.List>
+
+                    <Tabs.Panel value="magic-link">
+                        <form onSubmit={magicLinkForm.onSubmit((values) => {
+                            magicLinkMutation.mutate(values);
+                        })}>
+                            <TextInput
+                                label="Email address"
+                                placeholder="hello@gmail.com"
+                                size="md"
+                                {...magicLinkForm.getInputProps('email')}
+                            />
+
+                            <Button
+                                type='submit'
+                                fullWidth
+                                size="md"
+                                mt="xl"
+                                loading={magicLinkMutation.isPending}
+                            >
+                                Send Magic Link
+                            </Button>
+                        </form>
+                    </Tabs.Panel>
+
+                    <Tabs.Panel value="password">
+                        <form onSubmit={passwordForm.onSubmit((values) => {
+                            passwordMutation.mutate(values);
+                        })}>
+                            <TextInput
+                                label="Email address"
+                                placeholder="hello@gmail.com"
+                                size="md"
+                                {...passwordForm.getInputProps('email')}
+                            />
+                            <PasswordInput
+                                label="Password"
+                                placeholder="Your password"
+                                mt="md"
+                                size="md"
+                                {...passwordForm.getInputProps('password')}
+                            />
+                            <Checkbox label="Keep me logged in" mt="xl" size="md" />
+
+                            <Button
+                                type='submit'
+                                fullWidth
+                                size="md"
+                                mt="xl"
+                                loading={passwordMutation.isPending}
+                            >
+                                Login
+                            </Button>
+                        </form>
+                    </Tabs.Panel>
+                </Tabs>
+
                 <Stack mt={'xl'}>
-                    <Button type='submit' fullWidth size="md">
-                        Login
-                    </Button>
-                    <GoogleButton fullWidth size="md" onClick={() => loginWithGoogle(navigate)}>
+                    <GoogleButton fullWidth size="md" onClick={() => { thirdPartyMutation.mutate() }} loading={thirdPartyMutation.isPending}>
                         Login With Google
                     </GoogleButton>
                 </Stack>
@@ -72,10 +243,9 @@ export function Login() {
                     <Link to="/register" className="text-hf-blue hover:text-blue-700 font-bold">
                         Register
                     </Link>
-                  
                 </Text>
             </Paper>
-        </form>
+        </div>
     );
 }
 

@@ -1,17 +1,15 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { Login } from 'components/auth/login';
-import { userQueryOptions } from 'hooks/firebase';
+import { accessTokenQueryOptions } from 'hooks/auth.ts';
+import { memo } from 'react';
+import { Login } from 'components/auth/login.tsx';
 
 export const Route = createFileRoute('/login')({
   async beforeLoad({ context: { queryClient } }) {
     // Ensure the user is authenticated before loading the login page
     try {
-      const { user } = await queryClient.ensureQueryData(userQueryOptions);
-      
-      // Only redirect if user is authenticated
-      if (user) {
-        throw redirect({ to: '/' });
-      }
+      await queryClient.ensureQueryData(accessTokenQueryOptions);
+      throw redirect({ to: '/' });
+
     } catch (error) {
       if (error instanceof Error) {
         console.log("Auth error:", error.message);
@@ -21,11 +19,6 @@ export const Route = createFileRoute('/login')({
       }
     }
   },
-  component: RouteComponent,
+  component: memo(Login),
 });
 
-function RouteComponent() {
-  return (
-    <Login />
-  );
-}

@@ -1,13 +1,13 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
+import { accessTokenQueryOptions } from 'hooks/auth.ts'
 
-export const Route = createFileRoute("/")({
-  component: Index,
-})
-
-function Index() {
-  return (
-    <div className="p-2">
-      <h3>Welcome Home!</h3>
-    </div>
-  )
-}
+export const Route = createFileRoute('/')({
+  async beforeLoad({ context: { queryClient } }) {
+    try {
+      await queryClient.ensureQueryData(accessTokenQueryOptions);
+    } catch (_error) {
+      throw redirect({ to: '/login' });
+    }
+    throw redirect({ to: '/chat' });
+  },
+});
